@@ -1,0 +1,30 @@
+Final Accuracy: 0.50758
+
+
+
+noisy
+0.36486999999999997
+
+restart
+
+
+
+
+
+clean on noisy
+0.49627999999999994
+
+
+
+clean 50
+Final Accuracy: 0.6415
+
+1
+
+
+noisy 50 on clean: Final Accuracy: 0.6321
+noisy 50 on noisy: Final Accuracy: 0.5097
+
+clean2noisy
+Final Accuracy: 0.5168
+

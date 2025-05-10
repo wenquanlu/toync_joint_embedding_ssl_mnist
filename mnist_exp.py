@@ -8,6 +8,9 @@ import argparse
 def get_args_parser(add_help: bool = True):
     parser = argparse.ArgumentParser("DINOv2 training", add_help=add_help)
     parser.add_argument("--weight", default="")
+    parser.add_argument("--noisy", action="store_true", help="Enable noisy mode")
+    parser.add_argument("--epoch", type=int)
+    parser.add_argument("--save", default="")
     return parser
 
 
@@ -34,27 +37,31 @@ class MLPHead(nn.Module):
         return self.net(x)
     
 # Data augmentation with Gaussian noise
-def gaussian_noise(img, std=0.2):
+def gaussian_noise(img, std=0.4):
     noise = torch.randn_like(img) * std
     return torch.clamp(img + noise, 0., 1.)
 
 aug = transforms.Compose([
     transforms.RandomResizedCrop(28, scale=(0.8, 1.0)),
     transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.95, 1.05), shear=10),
-    transforms.ToTensor()
 ])
 
 class AugmentedMNIST(torch.utils.data.Dataset):
-    def __init__(self, train=True):
+    def __init__(self, noisy, train=True):
         self.dataset = datasets.MNIST(root='./data', train=train, download=True)
+        self.noisy = noisy
+        self.to_tensor = transforms.ToTensor()
     def __len__(self):
         return len(self.dataset)
     def __getitem__(self, idx):
         img, _ = self.dataset[idx]
-        img1 = gaussian_noise(aug(img))
-        img2 = gaussian_noise(aug(img))
-        #img1 = aug(img)
-        #img2 = aug(img)
+        img = self.to_tensor(img) 
+        if self.noisy:
+            img1 = aug(gaussian_noise(img))
+            img2 = aug(gaussian_noise(img))
+        else:
+            img1 = aug(img)
+            img2 = aug(img)
         return img1.view(-1), img2.view(-1)
     
 # Losses
@@ -74,9 +81,9 @@ if __name__ == "__main__":
         
 
     # Training setup
-    pretrain_loader = DataLoader(AugmentedMNIST(), batch_size=256, shuffle=True)
+    pretrain_loader = DataLoader(AugmentedMNIST(args.noisy), batch_size=256, shuffle=True)
 
-    model = LinearHead().cuda()
+    model = MLPHead().cuda()
     if args.weight != "":
         model.load_state_dict(torch.load(args.weight))
 
@@ -84,7 +91,7 @@ if __name__ == "__main__":
     lambda_cov = 0.5
 
     # Training loop
-    for epoch in range(10):
+    for epoch in range(args.epoch):
         running_inv_loss = 0.0
         running_cov_loss = 0.0
         for i, (x1, x2) in enumerate(pretrain_loader):
@@ -103,10 +110,12 @@ if __name__ == "__main__":
             running_cov_loss += cov_loss.item()
 
             if (i + 1) % 10 == 0:
-                print(f"Epoch [{epoch+1}/20], Step [{i+1}/{len(pretrain_loader)}], "
+                print(f"Epoch [{epoch+1}/{args.epoch}], Step [{i+1}/{len(pretrain_loader)}], "
                     f"Invariance Loss: {inv_loss.item():.4f}, Covariance Penalty: {cov_loss.item():.4f}")
+        if (epoch + 1)%10 == 0:
+            torch.save(model.state_dict(), args.save + f"_{epoch + 1}.pth")
 
         print(f"Epoch {epoch+1}: Avg Invariance Loss = {running_inv_loss / len(pretrain_loader):.4f}, "
             f"Avg Cov Penalty = {running_cov_loss / len(pretrain_loader):.4f}")
-    torch.save(model.state_dict(), "linear_weights_clean2noisy_20ep.pth")
+    torch.save(model.state_dict(), args.save + f"_final.pth")
 
